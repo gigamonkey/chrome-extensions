@@ -7,10 +7,12 @@
 
   "browser_action": {
     "default_icon": "icon.png",
-    "default_title": "Detab",
-    "default_popup": "popup.html"
+    "default_title": "Detab"
   },
-  "permissions": [
-    "tabs"
-  ]
+
+  "background": {
+    "scripts": ["detab.js"]
+  },
+
+  "permissions": [ "tabs" ]
 }

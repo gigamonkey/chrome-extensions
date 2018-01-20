@@ -2,7 +2,7 @@
  * Close duplicate tabs.
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+chrome.browserAction.onClicked.addListener(()  => {
 
   chrome.tabs.query({}, (tabs) => {
 
@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
         counts[url] = 1;
       }
     }
-    document.getElementById('msg').innerText = 'close ' + closed + ' duplicate tabs.'
+    var p = closed == 1 ? '' : 's';
+    alert('Closed ' + closed + ' duplicate tab' + p + '.');
   });
 });
