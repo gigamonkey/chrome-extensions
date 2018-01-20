@@ -1,17 +1,23 @@
+/*
+ * Close duplicate tabs.
+ */
+
 document.addEventListener('DOMContentLoaded', () => {
 
   chrome.tabs.query({}, (tabs) => {
 
-    var ul = document.getElementById('tabUrls');
-
-    var li = document.createElement('li');
-    li.textContent = 'BAR';
-    ul.appendChild(li);
+    var counts = {};
+    var closed = 0;
 
     for (var i = 0; i < tabs.length; i++) {
-      var li = document.createElement('li');
-      li.textContent = tabs[i].url;
-      ul.appendChild(li);
+      var url = tabs[i].url.split(/[?#]/)[0]
+      if (url in counts) {
+        chrome.tabs.remove(tabs[i].id);
+        closed++;
+      } else {
+        counts[url] = 1;
+      }
     }
+    document.getElementById('msg').innerText = 'close ' + closed + ' duplicate tabs.'
   });
 });

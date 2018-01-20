@@ -1,17 +1,16 @@
 {
   "manifest_version": 2,
 
-  "name": "Getting started example",
-  "description": "This extension allows the user to change the background color of the current page.",
+  "name": "Detab",
+  "description": "Removes extra tabs opened to the same URL.",
   "version": "1.0",
 
   "browser_action": {
     "default_icon": "icon.png",
+    "default_title": "Detab",
     "default_popup": "popup.html"
   },
   "permissions": [
-    "activeTab",
-    "storage",
     "tabs"
   ]
 }
