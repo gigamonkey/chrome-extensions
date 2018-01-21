@@ -1,0 +1,5 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <text x="100" y="115" text-anchor="middle" font-family="Helvetica" font-weight="bold" font-size="54px" fill="#33d">Tabs</text>
+  <circle cx="100" cy="100" r="80" stroke="#d00" stroke-width="20px" fill-opacity="0.0"/>
+  <line x1="40" y1="160" x2="160" y2="40" stroke="#d00" stroke-width="20px" fill="#fff"/>
+</svg>

@@ -1,0 +1,14 @@
+Detab keeps your tab bar clean by eliminating duplicate tabs. You can
+click the icon to remove duplicated tabs but that shouldn’t be
+necessary as it will work in the background—whenever you open a new
+tab, if the URL of the new tab (after removing any #fragment) is the
+same as an already existing tab, it will close the new tab and make
+the existing tab active.
+
+To install:
+
+ - Open chrome://extensions/ in Chrome.
+
+ - Tick the Developer mode check box.
+
+ - Click “Load unpacked extension …” button and select the “detab” directory containing this code.
