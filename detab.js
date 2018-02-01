@@ -31,7 +31,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.browserAction.onClicked.addListener(()  => {
 
-  chrome.tabs.query({}, (tabs) => {
+  chrome.tabs.query({ pinned: false }, (tabs) => {
 
     let counts = {};
     let closed = 0;
