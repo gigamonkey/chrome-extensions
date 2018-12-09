@@ -1,0 +1,5 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <text x="100" y="115" text-anchor="middle" font-family="Helvetica" font-weight="bold" font-size="54px" fill="#33d">Tabs</text>
+  <polygon points="40,55 130,55 130,45 160,60 130,75 130,65 40,65" stroke-width="1px" fill="#d33"/>
+  <polygon points="160,130 70,130 70,120 40,135 70,150 70,140 160,140" stroke-width="1px" fill="#d33"/>
+</svg>

@@ -1,0 +1,10 @@
+Sort-tabs keeps your tab bar clean by sorting tabs by URL.
+
+To install:
+
+ - Open chrome://extensions/ in Chrome.
+
+ - Tick the Developer mode check box.
+
+ - Click “Load unpacked extension …” button and select the “sort-tabs”
+   directory containing this code.
