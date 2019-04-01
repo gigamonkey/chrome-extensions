@@ -1,5 +1,5 @@
 /*
- * Close duplicate tabs.
+ * Close duplicate tabs and also those annoying Zoom tabs.
  */
 
 function normalizeUrl(url, aggressive) {
@@ -8,6 +8,10 @@ function normalizeUrl(url, aggressive) {
   } else {
     return url.split(/[#]/)[0];
   }
+}
+
+function isZoomTab(url) {
+  return url.startsWith("https://democrats.zoom.us/")
 }
 
 
@@ -20,7 +24,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       for (let i = 0; i < tabs.length; i++) {
         let otherUrl = normalizeUrl(tabs[i].url, false);
         if (otherUrl == tabUrl && tabs[i].id != tabId) {
-          chrome.tabs.update(tabs[i].id, { highlighted: true })
+          chrome.tabs.reload(tabs[i].id);
+          chrome.tabs.update(tabs[i].id, { highlighted: true });
           chrome.tabs.remove(tabId);
         }
       }
@@ -38,14 +43,12 @@ chrome.browserAction.onClicked.addListener(()  => {
 
     for (let i = 0; i < tabs.length; i++) {
       let url = normalizeUrl(tabs[i].url, true);
-      if (url in counts) {
+      if (url in counts || isZoomTab(url)) {
         chrome.tabs.remove(tabs[i].id);
         closed++;
       } else {
         counts[url] = 1;
       }
     }
-    let p = closed == 1 ? '' : 's';
-    alert('Closed ' + closed + ' duplicate tab' + p + '.');
   });
 });
