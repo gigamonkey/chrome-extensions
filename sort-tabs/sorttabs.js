@@ -38,7 +38,25 @@ function swap(tabs, i, j) {
   tabs[j] = tmp;
 }
 
-chrome.browserAction.onClicked.addListener(()  => {
+
+/*
+ * Close duplicate tabs and also those annoying Zoom tabs.
+ */
+
+function normalizeUrl(url, aggressive) {
+  if (aggressive) {
+    return url.split(/[?#]/)[0];
+  } else {
+    return url.split(/[#]/)[0];
+  }
+}
+
+function isZoomTab(url) {
+  return url.startsWith("https://democrats.zoom.us/")
+}
+
+
+function sortTabs() {
 
   chrome.tabs.query({ pinned: false, currentWindow: true }, (tabs) => {
 
@@ -55,4 +73,34 @@ chrome.browserAction.onClicked.addListener(()  => {
       chrome.tabs.move(tabs[i].id, { index: i + min });
     }
   });
+}
+
+function dedupeTabs() {
+
+  let seen = {};
+
+  // Mark pinned tabs as seen
+  chrome.tabs.query({ pinned: true, currentWindow: true }, (tabs) => {
+    for (let i = 0; i < tabs.length; i++) {
+      seen[normalizeUrl(tabs[i].url, true)] = true;
+    }
+  });
+
+  // Dedupe unpinned tabs
+  chrome.tabs.query({ pinned: false, currentWindow: true }, (tabs) => {
+    for (let i = 0; i < tabs.length; i++) {
+      let url = normalizeUrl(tabs[i].url, true);
+      if (url in seen || isZoomTab(url)) {
+        chrome.tabs.remove(tabs[i].id);
+      } else {
+        seen[url] = true;
+      }
+    }
+  });
+}
+
+
+chrome.browserAction.onClicked.addListener(() => {
+  dedupeTabs();
+  sortTabs();
 });
