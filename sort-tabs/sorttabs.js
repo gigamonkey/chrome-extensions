@@ -1,4 +1,17 @@
 /*
+ * URLs that we want to get rid of whenever we tidy up. Some because
+ * they are useless; some because they are distracting. You decide
+ * which are which.
+ */
+
+const garbage = [
+  "https://democrats.zoom.us/",
+  "https://twitter.com",
+  "https://www.cnn.com",
+  "https://www.nytimes.com",
+];
+
+/*
  * Sort tabs by url.
  */
 
@@ -51,8 +64,8 @@ function normalizeUrl(url, aggressive) {
   }
 }
 
-function isZoomTab(url) {
-  return url.startsWith("https://democrats.zoom.us/")
+function isGarbageTab(url) {
+  return garbage.some(prefix => url.startsWith(prefix))
 }
 
 
@@ -90,7 +103,7 @@ function dedupeTabs() {
   chrome.tabs.query({ pinned: false, currentWindow: true }, (tabs) => {
     for (let i = 0; i < tabs.length; i++) {
       let url = normalizeUrl(tabs[i].url, true);
-      if (url in seen || isZoomTab(url)) {
+      if (url in seen || isGarbageTab(url)) {
         chrome.tabs.remove(tabs[i].id);
       } else {
         seen[url] = true;
