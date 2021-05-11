@@ -5,10 +5,10 @@
  */
 
 const garbage = [
-  "https://democrats.zoom.us/",
-  "https://twitter.com",
-  "https://www.cnn.com",
-  "https://www.nytimes.com",
+  "https://(.*\.)?zoom\.us/",
+  "https://twitter\.com",
+  "https://www\.cnn\.com",
+  "https://www\.nytimes\.com",
 ];
 
 /*
@@ -65,7 +65,7 @@ function normalizeUrl(url, aggressive) {
 }
 
 function isGarbageTab(url) {
-  return garbage.some(prefix => url.startsWith(prefix))
+  return garbage.some(pat => url.match(pat))
 }
 
 
