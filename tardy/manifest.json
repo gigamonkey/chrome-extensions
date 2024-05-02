@@ -1,0 +1,27 @@
+{
+  "name": "Tardy",
+  "manifest_version": 3,
+  "version": "1.0",
+  "description": "Mark all students tardy.",
+
+  "icons": {
+    "48": "icon.png"
+  },
+
+  "action": {
+    "default_icon": {
+      "48": "icon.png"
+    },
+    "default_title": "Tardy!"
+  },
+
+  "background": {
+    "service_worker": "tardy.js"
+  },
+
+  "permissions": [
+    "scripting",
+    "activeTab"
+  ]
+
+}
