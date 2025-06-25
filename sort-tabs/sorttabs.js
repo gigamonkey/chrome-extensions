@@ -113,7 +113,7 @@ function dedupeTabs() {
 }
 
 
-chrome.browserAction.onClicked.addListener(() => {
+chrome.action.onClicked.addListener(() => {
   dedupeTabs();
   sortTabs();
 });
