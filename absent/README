@@ -1,0 +1,10 @@
+Hack to mark everyone tardy in IC (so I can then mark them present as I actually see them.)
+
+To install:
+
+ - Open chrome://extensions/ in Chrome.
+
+ - Tick the Developer mode check box.
+
+ - Click “Load unpacked extension …” button and select the “tardy”
+   directory containing this code.
