@@ -1,96 +1,112 @@
-const findScrollableParent = (element) => {
-  let currentElement = element;
-  while (currentElement && currentElement.parentNode !== null) {
-    currentElement = currentElement.parentNode;
-    if (currentElement === document.body) {
-      // Optionally check if body is scrollable, return it or continue to documentElement
-      if (isScrollable(currentElement)) {
-        return currentElement;
+(async () => {
+  if (window.__icFillActive) return;
+  window.__icFillActive = true;
+
+  // Find the grid document by searching through nested iframes for the one
+  // containing #gridTable, rather than assuming a fixed nesting depth.
+  const gridDoc = () => {
+    let doc = document;
+    const maxDepth = 10;
+    for (let i = 0; i < maxDepth; i++) {
+      if (doc.querySelector('#gridTable')) return doc;
+      const iframe = doc.querySelector('iframe');
+      if (!iframe?.contentDocument) break;
+      doc = iframe.contentDocument;
+    }
+    console.error('Could not find #gridTable in any iframe');
+    return null;
+  };
+
+  // Get the column identifier from the currently focused cell using closest()
+  // instead of brittle parentNode chains.
+  const column = () => {
+    const doc = gridDoc();
+    if (!doc) return null;
+    const active = doc.activeElement;
+    const xy = active?.closest('[data-xy]')?.dataset.xy;
+    if (!xy) {
+      console.error('Active element has no [data-xy] ancestor');
+      return null;
+    }
+    return xy.split('_')[0];
+  };
+
+  // Find all editable input cells in a given column.
+  const inputCells = (col) => {
+    const doc = gridDoc();
+    if (!doc) return [];
+    const divs = [...doc.querySelector('#gridTable').querySelectorAll('div.scoreCell')];
+    return divs
+      .filter(e => e.closest('[data-xy]')?.dataset.xy.startsWith(`${col}_`))
+      .map(e => e.querySelector('input.scoreInput'))
+      .filter(e => e && !e.hasAttribute('readonly'));
+  };
+
+  // Use the native value setter to bypass any framework wrappers (React, Angular, etc.)
+  // that may intercept normal property assignment.
+  const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+
+  // Simulate entering a value into a single input cell.
+  const fillCell = (input, value) => {
+    input.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+    nativeSetter.call(input, value);
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+  };
+
+  // Paste an array of values into a column. Handles length mismatches by pasting
+  // as many as possible and warning about the difference.
+  const pasteColumn = (data, col) => {
+    const cells = inputCells(col);
+    if (cells.length === 0) {
+      console.error(`No editable cells found in column ${col}`);
+      return;
+    }
+
+    const count = Math.min(cells.length, data.length);
+    if (cells.length !== data.length) {
+      console.warn(`Column mismatch: ${cells.length} cells, ${data.length} data rows. Filling ${count}.`);
+    }
+
+    for (let i = 0; i < count; i++) {
+      fillCell(cells[i], data[i]);
+    }
+    console.log(`Filled ${count} cells in column ${col}`);
+  };
+
+  // Read grades from clipboard, filtering out empty trailing lines.
+  const getFromClipboard = () =>
+    navigator.clipboard.readText().then(t => {
+      const lines = t.split('\n');
+      // Trim trailing empty entries (common from spreadsheet copy)
+      while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+        lines.pop();
       }
-      currentElement = document.documentElement; // Check the <html> element
-    }
-    if (isScrollable(currentElement)) {
-      return currentElement;
-    }
-  }
-  return null; // No scrollable parent found
-};
-
-const isScrollable = (element) => {
-  const computedStyle = window.getComputedStyle(element);
-  const overflowY = computedStyle.overflowY;
-  const overflowX = computedStyle.overflowX;
-
-  // Check if the element is scrollable in either X or Y direction
-  const isScrollableY = (overflowY === 'scroll' || overflowY === 'auto') && element.scrollHeight > element.clientHeight;
-  const isScrollableX = (overflowX === 'scroll' || overflowX === 'auto') && element.scrollWidth > element.clientWidth;
-
-  return isScrollableY || isScrollableX;
-};
-
-
-const gridDoc = () => document.querySelector('iframe').contentDocument.querySelector('iframe').contentDocument;
-
-const inputElement = () => gridDoc().activeElement;
-
-const column = () => inputElement()?.parentNode.parentNode.dataset.xy.split('_')[0];
-
-const inputCells = async (col) => {
-
-  /*
-  const trs = gridDoc().querySelectorAll('#gridTable tbody tr');
-
-  const e1 = await new Promise((resolve, reject) => {
-    const scrollable = findScrollableParent(trs[trs.length - 1]);
-    scrollable.addEventListener('scrollend', resolve, { once: true });
-    trs[trs.length - 1].scrollIntoView();
-  });
-  console.log(e1);
-
-  const e2 = await new Promise((resolve, reject) => {
-    const scrollable = findScrollableParent(trs[0]);
-    scrollable.addEventListener('scrollend', resolve, { once: true });
-    trs[0].scrollIntoView();
-  });
-  console.log(e1);
-  */
-
-  const divs = [...gridDoc().querySelector('#gridTable').querySelectorAll('div.scoreCell')];
-  return divs
-    .filter(e => e.parentNode.dataset.xy.startsWith(`${col}_`))
-    .map(e => e.querySelector('input.scoreInput'))
-    .filter(e => !e.getAttribute('readonly'));
-};
-
-const pasteColumn = async (data, col) => {
-  const cells = await inputCells(col);
-
-  if (cells.length !== data.length) {
-    console.log(`Column mismatch: ${cells.length} cells and ${data.length} data`);
-  } else {
-    // Simulate entering the data by hand so we trigger whatever event handlers IC is using.
-    cells.forEach((e, i) => {
-      e.dispatchEvent(new Event('focus', { bubbles: true, cancelable: true }));
-      e.value = data[i];
-      e.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-      e.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-      e.dispatchEvent(new Event('blur', { bubbles: true, cancelable: true }));
+      return lines;
     });
+
+  // Main flow: read clipboard, wait for user to click a cell, then fill.
+  const data = await getFromClipboard();
+  if (data.length === 0) {
+    console.error('Clipboard is empty');
+    return;
   }
-};
+  console.log(`Got ${data.length} rows from clipboard. Click a cell in the target column...`);
 
-const grades = Array(25).fill(4);
+  const doc = gridDoc();
+  if (!doc) return;
 
-const getFromClipboard = () => window.navigator.clipboard.readText().then(t => t.split('\n'))
+  const col = await new Promise(resolve => {
+    doc.addEventListener('focusin', function handler(e) {
+      if (e.target.matches('input.scoreInput')) {
+        doc.removeEventListener('focusin', handler);
+        const xy = e.target.closest('[data-xy]')?.dataset.xy;
+        if (xy) resolve(xy.split('_')[0]);
+      }
+    });
+  });
 
-const pasteGrades = (data) => {
-  pasteColumn(data, column());
-};
-
-
-//const doit = () => pasteGrades(grades);
-
-const doit = () => {
-  console.log('Click in column.');
-  setTimeout(async () => pasteGrades(await getFromClipboard()), 2000);
-};
+  pasteColumn(data, col);
+  window.__icFillActive = false;
+})();
