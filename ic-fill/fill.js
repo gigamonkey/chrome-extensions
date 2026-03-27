@@ -40,24 +40,64 @@ if (!window.__icFill) {
     input.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
   };
 
-  // Paste an array of values into a column. Handles length mismatches by pasting
-  // as many as possible and warning about the difference.
-  const pasteColumn = (data, col) => {
-    const cells = inputCells(col);
-    if (cells.length === 0) {
-      console.error(`No editable cells found in column ${col}`);
-      return;
+  // Find the scrollable ancestor of the grid (the element with the scrollbar).
+  const gridScroller = (doc) => {
+    let el = doc.querySelector('#gridTable');
+    while (el) {
+      if (el.scrollHeight > el.clientHeight + 1) return el;
+      el = el.parentElement;
+    }
+    return null;
+  };
+
+  // Paste an array of values into a column, scrolling to reach lazily-rendered
+  // rows. Rows off-screen exist as empty <tr> placeholders (no inputs) until
+  // scrolled into view, so we scroll through the grid and fill cells in DOM
+  // order as they appear, using a Set to avoid double-filling.
+  const pasteColumn = async (data, col) => {
+    const doc = gridDoc();
+    if (!doc) return;
+
+    const scroller = gridScroller(doc);
+    const filled = new Set();  // track filled data-xy values
+    let nextDataIdx = 0;
+
+    const fillVisible = () => {
+      const cells = inputCells(col);
+      for (const input of cells) {
+        const xy = input.closest('[data-xy]')?.dataset.xy;
+        if (!xy || filled.has(xy)) continue;
+        if (nextDataIdx >= data.length) break;
+        fillCell(input, data[nextDataIdx]);
+        filled.add(xy);
+        nextDataIdx++;
+      }
+    };
+
+    if (scroller) {
+      // Start from the top so we fill in DOM/visual order.
+      scroller.scrollTop = 0;
+      await new Promise(r => setTimeout(r, 100));
     }
 
-    const count = Math.min(cells.length, data.length);
-    if (cells.length !== data.length) {
-      console.warn(`Column mismatch: ${cells.length} cells, ${data.length} data rows. Filling ${count}.`);
+    fillVisible();
+
+    if (scroller) {
+      const step = scroller.clientHeight * 0.8;
+      while (scroller.scrollTop < scroller.scrollHeight - scroller.clientHeight - 1) {
+        scroller.scrollTop += step;
+        await new Promise(r => setTimeout(r, 150));
+        fillVisible();
+        if (nextDataIdx >= data.length) break;
+      }
+      // One final check at the bottom.
+      fillVisible();
     }
 
-    for (let i = 0; i < count; i++) {
-      fillCell(cells[i], data[i]);
+    console.log(`Filled ${nextDataIdx}/${data.length} cells in column ${col}`);
+    if (nextDataIdx < data.length) {
+      console.warn(`Could not find cells for ${data.length - nextDataIdx} rows — they may not exist in the grid.`);
     }
-    console.log(`Filled ${count} cells in column ${col}`);
   };
 
   // Read grades from clipboard, filtering out empty trailing lines.
@@ -97,7 +137,7 @@ if (!window.__icFill) {
         });
       });
 
-      pasteColumn(data, col);
+      await pasteColumn(data, col);
     } finally {
       active = false;
     }
