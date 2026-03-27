@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Green rounded square background -->
+  <rect x="4" y="4" width="120" height="120" rx="16" ry="16" fill="#4CAF50"/>
+
+  <!-- White C -->
+  <!-- <text x="64" y="115" -->
+  <!--       font-family="Helvetica, Arial, sans-serif" font-weight="bold" -->
+  <!--       font-size="144" -->
+  <!--       fill="white" -->
+  <!--       text-anchor="middle">C</text> -->
+
+  <defs>
+    <!-- Arrow shape centered at origin, pointing down -->
+    <polygon id="arrow" points="0,16 11,-8 5,-8 5,-32 -5,-32 -5,-8 -11,-8"/>
+  </defs>
+
+  <!-- Blue downward arrow -->
+  <use href="#arrow" fill="#fff" transform="translate(65,80) scale(2)"/>
+</svg>

@@ -1,6 +1,5 @@
-(async () => {
-  if (window.__icFillActive) return;
-  window.__icFillActive = true;
+if (!window.__icFill) {
+  window.__icFill = true;
 
   // Find the grid document by searching through nested iframes for the one
   // containing #gridTable, rather than assuming a fixed nesting depth.
@@ -15,20 +14,6 @@
     }
     console.error('Could not find #gridTable in any iframe');
     return null;
-  };
-
-  // Get the column identifier from the currently focused cell using closest()
-  // instead of brittle parentNode chains.
-  const column = () => {
-    const doc = gridDoc();
-    if (!doc) return null;
-    const active = doc.activeElement;
-    const xy = active?.closest('[data-xy]')?.dataset.xy;
-    if (!xy) {
-      console.error('Active element has no [data-xy] ancestor');
-      return null;
-    }
-    return xy.split('_')[0];
   };
 
   // Find all editable input cells in a given column.
@@ -79,7 +64,6 @@
   const getFromClipboard = () =>
     navigator.clipboard.readText().then(t => {
       const lines = t.split('\n');
-      // Trim trailing empty entries (common from spreadsheet copy)
       while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
         lines.pop();
       }
@@ -87,26 +71,37 @@
     });
 
   // Main flow: read clipboard, wait for user to click a cell, then fill.
-  const data = await getFromClipboard();
-  if (data.length === 0) {
-    console.error('Clipboard is empty');
-    return;
-  }
-  console.log(`Got ${data.length} rows from clipboard. Click a cell in the target column...`);
+  let active = false;
 
-  const doc = gridDoc();
-  if (!doc) return;
-
-  const col = await new Promise(resolve => {
-    doc.addEventListener('focusin', function handler(e) {
-      if (e.target.matches('input.scoreInput')) {
-        doc.removeEventListener('focusin', handler);
-        const xy = e.target.closest('[data-xy]')?.dataset.xy;
-        if (xy) resolve(xy.split('_')[0]);
+  const run = async () => {
+    if (active) return;
+    active = true;
+    try {
+      const data = await getFromClipboard();
+      if (data.length === 0) {
+        console.error('Clipboard is empty');
+        return;
       }
-    });
-  });
+      console.log(`Got ${data.length} rows from clipboard. Click a cell in the target column...`);
 
-  pasteColumn(data, col);
-  window.__icFillActive = false;
-})();
+      const doc = gridDoc();
+      if (!doc) return;
+
+      const col = await new Promise(resolve => {
+        doc.addEventListener('focusin', function handler(e) {
+          if (e.target.matches('input.scoreInput')) {
+            doc.removeEventListener('focusin', handler);
+            const xy = e.target.closest('[data-xy]')?.dataset.xy;
+            if (xy) resolve(xy.split('_')[0]);
+          }
+        });
+      });
+
+      pasteColumn(data, col);
+    } finally {
+      active = false;
+    }
+  };
+
+  document.addEventListener('ic-fill', run);
+}
