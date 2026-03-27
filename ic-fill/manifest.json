@@ -1,28 +1,23 @@
 {
   "name": "IC Fill",
   "manifest_version": 3,
-  "version": "1.0",
+  "version": "1.0.0",
   "description": "Paste grades from clipboard into an Infinite Campus gradebook column.",
-
   "icons": {
     "48": "icon.png"
   },
-
   "action": {
     "default_icon": {
       "48": "icon.png"
     },
     "default_title": "Fill column"
   },
-
   "background": {
     "service_worker": "background.js"
   },
-
   "permissions": [
     "scripting",
     "activeTab",
     "clipboardRead"
   ]
-
 }
