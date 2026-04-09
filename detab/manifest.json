@@ -1,17 +1,17 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
 
   "name": "Detab",
   "description": "Removes extra tabs opened to the same URL.",
   "version": "1.0",
 
-  "browser_action": {
+  "action": {
     "default_icon": "icon.png",
     "default_title": "Remove duplicate tabs"
   },
 
   "background": {
-    "scripts": ["detab.js"]
+    "service_worker": "detab.js"
   },
 
   "permissions": [ "tabs" ]
