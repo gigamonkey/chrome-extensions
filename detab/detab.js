@@ -34,7 +34,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 
-chrome.browserAction.onClicked.addListener(()  => {
+chrome.action.onClicked.addListener(()  => {
 
   chrome.tabs.query({ pinned: false }, (tabs) => {
 
