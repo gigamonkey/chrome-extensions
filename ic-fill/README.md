@@ -5,10 +5,11 @@ Infinite Campus's grade grid.
 
 ## Installation
 
-1. Unzip the archive.
-2. In Chrome, go to `chrome://extensions`.
-3. Enable **Developer mode** (toggle in the top right).
-4. Click **Load unpacked** and select the unzipped folder.
+1. Download ic-fill-1.0.0.zip.
+2. Unzip the archive.
+3. In Chrome, go to `chrome://extensions`.
+4. Enable **Developer mode** (toggle in the top right).
+5. Click **Load unpacked** and select the unzipped folder.
 
 ## Usage
 
