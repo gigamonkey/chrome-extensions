@@ -11,7 +11,7 @@ function normalizeUrl(url, aggressive) {
 }
 
 function isZoomTab(url) {
-  return url.startsWith("https://democrats.zoom.us/")
+  return url.startsWith("https://auraframes.zoom.us/")
 }
 
 
@@ -24,9 +24,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       for (let i = 0; i < tabs.length; i++) {
         let otherUrl = normalizeUrl(tabs[i].url, false);
         if (otherUrl == tabUrl && tabs[i].id != tabId) {
-          chrome.tabs.reload(tabs[i].id);
-          chrome.tabs.update(tabs[i].id, { highlighted: true });
-          chrome.tabs.remove(tabId);
+          chrome.tabs.remove(tabs[i].id);
+          chrome.tabs.update(tabId, { highlighted: true });
         }
       }
     });
