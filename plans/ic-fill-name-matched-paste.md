@@ -117,15 +117,34 @@ Visited cells are still tracked by `data-xy` in the `filled` set so
 unmatched rows aren't re-examined every scroll step (rename the set if that
 reads better).
 
-### 5. Reporting
+### 5. Reporting: in-page status banner
 
-At the end, `console.log` a summary per mode. For name mode:
+Console logging alone is invisible unless DevTools happens to be open, so
+results — especially ambiguous or unmatched names — get a proper in-page
+banner. `fill.js` already runs in the page's MAIN world, so it can inject
+an overlay directly: no new permissions, no background/content-script
+messaging.
 
-- how many cells were filled,
-- clipboard names that matched no student (listed),
-- any ambiguous names that were skipped.
+A small `banner` helper owns a single fixed-position div in the **top**
+document (`position: fixed`, top-right, high z-index, all styling inline so
+Infinite Campus CSS can't affect it; reuse the same element across calls).
+It drives the whole flow, replacing today's console-only prompts:
 
-Grid rows without a clipboard grade are by design and don't need a warning.
+- On activation: "Got N grades from clipboard — click a cell in the target
+  column…" (currently the user gets no visible feedback that the extension
+  is armed).
+
+- While filling: a short "Filling…" state, since the scroll loop can take a
+  few seconds on long rosters.
+
+- On completion, a summary per mode. For name mode: how many cells were
+  filled, clipboard names that matched no student (listed), and ambiguous
+  names that were skipped (listed). On clean success the banner auto-fades
+  after a few seconds; if there are unmatched or ambiguous names it stays
+  up, styled as a warning, with a close button.
+
+Grid rows without a clipboard grade are by design and don't appear in the
+summary. Keep the `console.log` calls too, as the detailed record.
 
 ## Steps
 
@@ -138,10 +157,13 @@ Grid rows without a clipboard grade are by design and don't need a warning.
 3. Add the name resolver wired to the student map (rebuilt inside the scroll
    loop) and the mode switch in `run`.
 
-4. Update the summary logging per mode; update `README.md` to describe the
-   two clipboard formats.
+4. Add the `banner` helper and wire it through `run`/`pasteColumn`
+   (activation prompt, filling state, per-mode summary with
+   unmatched/ambiguous name lists); keep the console logging alongside.
 
-5. Bump the version with the existing `bump-version.py` / Makefile flow.
+5. Update `README.md` to describe the two clipboard formats and the banner.
+
+6. Bump the version with the existing `bump-version.py` / Makefile flow.
 
 ## Testing
 
@@ -154,7 +176,12 @@ Manual, against a real Infinite Campus gradebook:
 - Shuffled TSV, TSV missing some students, TSV with extra/unknown names, a
   header row, names in `First Last` order, a nickname student
   ("Gehring, Darien (Darien)") — verify matches, untouched rows, and the
-  console summary.
+  summary in both the banner and the console.
+
+- Banner behavior: prompt appears on activation, warning variant sticks
+  around (with working close button) when there are unmatched or ambiguous
+  names, success variant auto-fades, and repeated runs reuse one banner
+  rather than stacking.
 
 - A class long enough to trigger lazy rendering, to confirm name matching
   works for rows that only render mid-scroll.
