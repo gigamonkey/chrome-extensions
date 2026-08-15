@@ -102,14 +102,36 @@ if (!window.__icFill) {
   })();
 
   // Normalized lookup keys for a student name: parentheticals (nicknames)
-  // stripped, lowercased, whitespace collapsed. "Last, First" names get a
-  // second "first last" key so the clipboard can use either order.
+  // stripped, lowercased, commas treated as spaces, whitespace collapsed.
+  // "Last, First" names get a second "first last" key so the clipboard can
+  // use either order.
+  const norm = s =>
+    s.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+
   const nameKeys = (name) => {
-    const norm = s => s.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
     const keys = [norm(name)];
     const comma = name.indexOf(',');
     if (comma >= 0) keys.push(norm(`${name.slice(comma + 1)} ${name.slice(0, comma)}`));
     return [...new Set(keys)].filter(k => k !== '');
+  };
+
+  // A looser "last-name first-name" key that drops middle names/initials,
+  // which Infinite Campus includes in display names ("Astera, Maia C") but
+  // clipboard rosters often lack. Used only when no full-name key matches,
+  // and subject to the same ambiguity rules.
+  const reducedKey = (name) => {
+    const stripped = name.replace(/\([^)]*\)/g, ' ');
+    const comma = stripped.indexOf(',');
+    let first, last;
+    if (comma >= 0) {
+      last = stripped.slice(0, comma);
+      first = stripped.slice(comma + 1).trim().split(/\s+/)[0] ?? '';
+    } else {
+      const parts = stripped.trim().split(/\s+/);
+      first = parts[0] ?? '';
+      last = parts.length > 1 ? parts[parts.length - 1] : '';
+    }
+    return first && last ? norm(`${last} ${first}`) : '';
   };
 
   // Parse clipboard text. If every non-blank line contains a tab, it's a
@@ -160,7 +182,8 @@ if (!window.__icFill) {
   // re-reads #studentTable on every scroll pass in case it, like the grid,
   // renders rows lazily.
   const nameSource = (entries) => {
-    const byKey = new Map();
+    const byKey = new Map();      // full-name key -> entry
+    const byReduced = new Map();  // reduced key -> entry, or null if two entries share it
     for (const entry of entries) {
       for (const key of nameKeys(entry.name)) {
         if (byKey.has(key) && byKey.get(key) !== entry) {
@@ -168,9 +191,12 @@ if (!window.__icFill) {
         }
         byKey.set(key, entry);
       }
+      const rk = reducedKey(entry.name);
+      if (rk) byReduced.set(rk, byReduced.has(rk) && byReduced.get(rk) !== entry ? null : entry);
     }
-    const rowNames = new Map();  // "<section>_<student>" -> display name
-    let keyOwners = new Map();   // normalized key -> Set of row keys
+    const rowNames = new Map();       // "<section>_<student>" -> display name
+    let keyOwners = new Map();        // full-name key -> Set of row keys
+    let reducedOwners = new Map();    // reduced key -> Set of row keys
     return {
       refresh: (doc) => {
         for (const tr of doc.querySelectorAll('#studentTable tr.studentTR')) {
@@ -180,11 +206,15 @@ if (!window.__icFill) {
           }
         }
         keyOwners = new Map();
+        reducedOwners = new Map();
+        const own = (map, key, rowKey) => {
+          if (!map.has(key)) map.set(key, new Set());
+          map.get(key).add(rowKey);
+        };
         for (const [rowKey, name] of rowNames) {
-          for (const key of nameKeys(name)) {
-            if (!keyOwners.has(key)) keyOwners.set(key, new Set());
-            keyOwners.get(key).add(rowKey);
-          }
+          for (const key of nameKeys(name)) own(keyOwners, key, rowKey);
+          const rk = reducedKey(name);
+          if (rk) own(reducedOwners, rk, rowKey);
         }
       },
       resolve: (input) => {
@@ -192,6 +222,8 @@ if (!window.__icFill) {
         if (!tr?.id?.startsWith('gridTR')) return undefined;
         const name = rowNames.get(tr.id.slice('gridTR'.length));
         if (!name) return undefined;
+        // Full-name match first; fall back to the middle-name-insensitive
+        // reduced key only if no full key matches.
         for (const key of nameKeys(name)) {
           const entry = byKey.get(key);
           if (!entry) continue;
@@ -200,6 +232,18 @@ if (!window.__icFill) {
           if (keyOwners.get(key)?.size > 1) {
             entry.ambiguous = true;
             continue;
+          }
+          entry.used = true;
+          return entry.grade;
+        }
+        const rk = reducedKey(name);
+        if (rk && byReduced.has(rk)) {
+          const entry = byReduced.get(rk);
+          if (entry === null) return undefined;  // two clipboard rows collide on this key
+          if (entry.used) return undefined;      // already claimed via a full-name match
+          if (reducedOwners.get(rk)?.size > 1) {
+            entry.ambiguous = true;
+            return undefined;
           }
           entry.used = true;
           return entry.grade;
@@ -213,6 +257,19 @@ if (!window.__icFill) {
         const lines = [`Filled ${filled} of ${entries.length} grades by student name.`];
         if (unmatched.length > 0) lines.push(`No matching student: ${unmatched.join('; ')}`);
         if (ambiguous.length > 0) lines.push(`Ambiguous name, skipped: ${ambiguous.join('; ')}`);
+        if (unmatched.length > 0 && rowNames.size === 0) {
+          lines.push('No student names could be read from the grid at all — the page layout may have changed.');
+        }
+        if (unmatched.length > 0) {
+          // Diagnostic dump: show exactly what the grid displays, with any
+          // non-ASCII characters made visible, so mismatches can be debugged.
+          const reveal = n => JSON.stringify(n).replace(/[^\x20-\x7e]/g,
+            c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+          console.log(`Student names read from the grid (${rowNames.size}):\n  ` +
+            [...new Set(rowNames.values())].map(reveal).join('\n  '));
+          console.log('Unmatched clipboard names:\n  ' +
+            unmatched.map(reveal).join('\n  '));
+        }
         return { lines, ok: unmatched.length === 0 && ambiguous.length === 0 };
       },
     };
