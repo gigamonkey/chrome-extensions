@@ -50,27 +50,198 @@ if (!window.__icFill) {
     return null;
   };
 
-  // Paste an array of values into a column, scrolling to reach lazily-rendered
+  // Status banner injected into the top page, since console output is
+  // invisible unless DevTools is open. One element, reused across runs.
+  const banner = (() => {
+    const COLORS = { info: '#1a73e8', success: '#188038', warn: '#d93025' };
+    let el, msg, timer;
+    const hide = () => {
+      clearTimeout(timer);
+      el?.remove();
+      el = null;
+    };
+    const ensure = () => {
+      if (el?.isConnected) return;
+      el = document.createElement('div');
+      // All styling is inline so the host page's CSS can't affect it.
+      el.style.cssText =
+        'position:fixed;top:16px;right:16px;z-index:2147483647;max-width:380px;' +
+        'background:#fff;color:#202124;font:13px/1.5 system-ui,sans-serif;' +
+        'padding:12px 36px 12px 14px;border-radius:8px;border-left:4px solid #1a73e8;' +
+        'box-shadow:0 2px 12px rgba(0,0,0,.3);transition:opacity .4s;';
+      msg = document.createElement('div');
+      const close = document.createElement('div');
+      close.textContent = '×';
+      close.style.cssText =
+        'position:absolute;top:4px;right:10px;cursor:pointer;font-size:18px;color:#5f6368;';
+      close.addEventListener('click', hide);
+      el.append(msg, close);
+      document.body.appendChild(el);
+    };
+    // lines: array of strings; the first is rendered bold. Text goes in via
+    // textContent since it can contain clipboard data.
+    const show = (lines, kind = 'info', { autoHide = false } = {}) => {
+      ensure();
+      clearTimeout(timer);
+      el.style.opacity = '1';
+      el.style.borderLeftColor = COLORS[kind];
+      msg.replaceChildren(...lines.map((line, i) => {
+        const div = document.createElement('div');
+        div.textContent = line;
+        if (i === 0) div.style.fontWeight = '600';
+        return div;
+      }));
+      if (autoHide) {
+        timer = setTimeout(() => {
+          el.style.opacity = '0';
+          timer = setTimeout(hide, 450);
+        }, 5000);
+      }
+    };
+    return { show, hide };
+  })();
+
+  // Normalized lookup keys for a student name: parentheticals (nicknames)
+  // stripped, lowercased, whitespace collapsed. "Last, First" names get a
+  // second "first last" key so the clipboard can use either order.
+  const nameKeys = (name) => {
+    const norm = s => s.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    const keys = [norm(name)];
+    const comma = name.indexOf(',');
+    if (comma >= 0) keys.push(norm(`${name.slice(comma + 1)} ${name.slice(0, comma)}`));
+    return [...new Set(keys)].filter(k => k !== '');
+  };
+
+  // Parse clipboard text. If every non-blank line contains a tab, it's a
+  // name/grade TSV and we match by student name; otherwise it's a plain
+  // column of grades pasted positionally. Trailing blank lines are dropped.
+  const parseClipboard = (text) => {
+    const lines = text.split('\n').map(l => l.replace(/\r$/, ''));
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+      lines.pop();
+    }
+    if (lines.length === 0) return null;
+    const nonBlank = lines.filter(l => l.trim() !== '');
+    if (!nonBlank.every(l => l.includes('\t'))) {
+      return { mode: 'positional', values: lines };
+    }
+    // Rows with an empty grade are dropped: no grade means leave that
+    // student's cell untouched, not blank it. Unmatchable names (including
+    // any header row) are reported after the fill, not treated as errors.
+    const entries = [];
+    for (const line of nonBlank) {
+      const [name, grade] = line.split('\t');
+      if (name.trim() === '' || !grade?.trim()) continue;
+      entries.push({ name: name.trim(), grade: grade.trim(), used: false, ambiguous: false });
+    }
+    return { mode: 'names', entries };
+  };
+
+  // Value source for positional mode: the current fill-down-the-column
+  // behavior, one clipboard line per editable cell.
+  const positionalSource = (values) => {
+    let idx = 0;
+    return {
+      resolve: () => values[idx++],
+      exhausted: () => idx >= values.length,
+      summary: (filled) => {
+        const lines = [`Filled ${filled} of ${values.length} rows.`];
+        if (filled < values.length) {
+          lines.push(`No cells found for the last ${values.length - filled} rows — the grid may have fewer rows than the clipboard.`);
+        }
+        return { lines, ok: filled === values.length };
+      },
+    };
+  };
+
+  // Value source for name mode. Grid rows (tr#gridTR<section>_<student>) and
+  // student-name rows (tr#studentTR<section>_<student>) share an id suffix,
+  // so each editable cell maps to a display name via that suffix. refresh()
+  // re-reads #studentTable on every scroll pass in case it, like the grid,
+  // renders rows lazily.
+  const nameSource = (entries) => {
+    const byKey = new Map();
+    for (const entry of entries) {
+      for (const key of nameKeys(entry.name)) {
+        if (byKey.has(key) && byKey.get(key) !== entry) {
+          console.warn(`Duplicate name on clipboard: "${entry.name}" — using the last row.`);
+        }
+        byKey.set(key, entry);
+      }
+    }
+    const rowNames = new Map();  // "<section>_<student>" -> display name
+    let keyOwners = new Map();   // normalized key -> Set of row keys
+    return {
+      refresh: (doc) => {
+        for (const tr of doc.querySelectorAll('#studentTable tr.studentTR')) {
+          const name = tr.querySelector('.studentName a')?.textContent;
+          if (tr.id.startsWith('studentTR') && name) {
+            rowNames.set(tr.id.slice('studentTR'.length), name);
+          }
+        }
+        keyOwners = new Map();
+        for (const [rowKey, name] of rowNames) {
+          for (const key of nameKeys(name)) {
+            if (!keyOwners.has(key)) keyOwners.set(key, new Set());
+            keyOwners.get(key).add(rowKey);
+          }
+        }
+      },
+      resolve: (input) => {
+        const tr = input.closest('tr.gridTR');
+        if (!tr?.id?.startsWith('gridTR')) return undefined;
+        const name = rowNames.get(tr.id.slice('gridTR'.length));
+        if (!name) return undefined;
+        for (const key of nameKeys(name)) {
+          const entry = byKey.get(key);
+          if (!entry) continue;
+          // Two students normalizing to the same name: filling both with one
+          // grade would silently be wrong for one of them, so skip and report.
+          if (keyOwners.get(key)?.size > 1) {
+            entry.ambiguous = true;
+            continue;
+          }
+          entry.used = true;
+          return entry.grade;
+        }
+        return undefined;
+      },
+      exhausted: () => entries.every(e => e.used || e.ambiguous),
+      summary: (filled) => {
+        const unmatched = entries.filter(e => !e.used && !e.ambiguous).map(e => e.name);
+        const ambiguous = entries.filter(e => e.ambiguous && !e.used).map(e => e.name);
+        const lines = [`Filled ${filled} of ${entries.length} grades by student name.`];
+        if (unmatched.length > 0) lines.push(`No matching student: ${unmatched.join('; ')}`);
+        if (ambiguous.length > 0) lines.push(`Ambiguous name, skipped: ${ambiguous.join('; ')}`);
+        return { lines, ok: unmatched.length === 0 && ambiguous.length === 0 };
+      },
+    };
+  };
+
+  // Fill a column from a value source, scrolling to reach lazily-rendered
   // rows. Rows off-screen exist as empty <tr> placeholders (no inputs) until
-  // scrolled into view, so we scroll through the grid and fill cells in DOM
-  // order as they appear, using a Set to avoid double-filling.
-  const pasteColumn = async (data, col) => {
+  // scrolled into view, so we scroll through the grid and offer each cell to
+  // the source as it appears, using a Set to avoid revisiting cells.
+  const pasteColumn = async (source, col) => {
     const doc = gridDoc();
-    if (!doc) return;
+    if (!doc) return 0;
 
     const scroller = gridScroller(doc);
-    const filled = new Set();  // track filled data-xy values
-    let nextDataIdx = 0;
+    const visited = new Set();  // data-xy values already offered to the source
+    let filled = 0;
 
     const fillVisible = () => {
-      const cells = inputCells(col);
-      for (const input of cells) {
+      source.refresh?.(doc);
+      for (const input of inputCells(col)) {
         const xy = input.closest('[data-xy]')?.dataset.xy;
-        if (!xy || filled.has(xy)) continue;
-        if (nextDataIdx >= data.length) break;
-        fillCell(input, data[nextDataIdx]);
-        filled.add(xy);
-        nextDataIdx++;
+        if (!xy || visited.has(xy)) continue;
+        if (source.exhausted()) break;
+        visited.add(xy);
+        const value = source.resolve(input);
+        if (value !== undefined) {
+          fillCell(input, value);
+          filled++;
+        }
       }
     };
 
@@ -88,27 +259,14 @@ if (!window.__icFill) {
         scroller.scrollTop += step;
         await new Promise(r => setTimeout(r, 150));
         fillVisible();
-        if (nextDataIdx >= data.length) break;
+        if (source.exhausted()) break;
       }
       // One final check at the bottom.
       fillVisible();
     }
 
-    console.log(`Filled ${nextDataIdx}/${data.length} cells in column ${col}`);
-    if (nextDataIdx < data.length) {
-      console.warn(`Could not find cells for ${data.length - nextDataIdx} rows — they may not exist in the grid.`);
-    }
+    return filled;
   };
-
-  // Read grades from clipboard, filtering out empty trailing lines.
-  const getFromClipboard = () =>
-    navigator.clipboard.readText().then(t => {
-      const lines = t.split('\n');
-      while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
-        lines.pop();
-      }
-      return lines;
-    });
 
   // Main flow: read clipboard, wait for user to click a cell, then fill.
   let active = false;
@@ -117,15 +275,25 @@ if (!window.__icFill) {
     if (active) return;
     active = true;
     try {
-      const data = await getFromClipboard();
-      if (data.length === 0) {
-        console.error('Clipboard is empty');
+      const clip = parseClipboard(await navigator.clipboard.readText());
+      if (!clip || (clip.mode === 'names' && clip.entries.length === 0)) {
+        banner.show(['IC Fill: nothing usable on the clipboard.'], 'warn');
+        console.error('Clipboard is empty or has no name/grade rows');
         return;
       }
-      console.log(`Got ${data.length} rows from clipboard. Click a cell in the target column...`);
 
       const doc = gridDoc();
-      if (!doc) return;
+      if (!doc) {
+        banner.show(['IC Fill: could not find the grade grid on this page.'], 'warn');
+        return;
+      }
+
+      const count = clip.mode === 'names' ? clip.entries.length : clip.values.length;
+      const how = clip.mode === 'names' ? 'matching by student name' : 'pasting down the column';
+      banner.show(
+        [`IC Fill: ${count} grades on clipboard, ${how}.`, 'Click a cell in the target column…'],
+        'info');
+      console.log(`Got ${count} rows from clipboard (${clip.mode} mode). Click a cell in the target column...`);
 
       const col = await new Promise(resolve => {
         doc.addEventListener('focusin', function handler(e) {
@@ -137,7 +305,15 @@ if (!window.__icFill) {
         });
       });
 
-      await pasteColumn(data, col);
+      banner.show(['IC Fill: filling…'], 'info');
+
+      const source = clip.mode === 'names' ? nameSource(clip.entries) : positionalSource(clip.values);
+      const filled = await pasteColumn(source, col);
+
+      const { lines, ok } = source.summary(filled);
+      lines[0] = `IC Fill: ${lines[0]}`;
+      banner.show(lines, ok ? 'success' : 'warn', { autoHide: ok });
+      console.log(lines.join('\n'));
     } finally {
       active = false;
     }
