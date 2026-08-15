@@ -170,7 +170,7 @@
     return {
       resolve: () => values[idx++],
       exhausted: () => idx >= values.length,
-      summary: (filled) => {
+      summary: (filled, offered) => {
         const lines = [`Filled ${filled} of ${values.length} rows.`];
         if (filled < values.length) {
           lines.push(`No cells found for the last ${values.length - filled} rows — the grid may have fewer rows than the clipboard.`);
@@ -201,6 +201,11 @@
     const rowNames = new Map();       // "<section>_<student>" -> display name
     let keyOwners = new Map();        // full-name key -> Set of row keys
     let reducedOwners = new Map();    // reduced key -> Set of row keys
+    const unfilledNames = new Set();  // students whose row got no grade
+    const miss = (name) => {
+      if (name) unfilledNames.add(name.replace(/\s+/g, ' ').trim());
+      return undefined;
+    };
     return {
       refresh: (doc) => {
         for (const tr of doc.querySelectorAll('#studentTable tr.studentTR')) {
@@ -243,25 +248,28 @@
         const rk = reducedKey(name);
         if (rk && byReduced.has(rk)) {
           const entry = byReduced.get(rk);
-          if (entry === null) return undefined;  // two clipboard rows collide on this key
-          if (entry.used) return undefined;      // already claimed via a full-name match
+          if (entry === null) return miss(name);  // two clipboard rows collide on this key
+          if (entry.used) return miss(name);      // already claimed via a full-name match
           if (reducedOwners.get(rk)?.size > 1) {
             entry.ambiguous = true;
-            return undefined;
+            return miss(name);
           }
           entry.used = true;
           return entry.grade;
         }
-        return undefined;
+        return miss(name);
       },
-      exhausted: () => entries.every(e => e.used || e.ambiguous),
-      summary: (filled) => {
+      // Never stop early: success is judged by whether every row in the
+      // column got filled, so the whole column has to be examined.
+      exhausted: () => false,
+      summary: (filled, offered) => {
         const unmatched = entries.filter(e => !e.used && !e.ambiguous).map(e => e.name);
         const ambiguous = entries.filter(e => e.ambiguous && !e.used).map(e => e.name);
-        const lines = [`Filled ${filled} of ${entries.length} grades by student name.`];
-        if (unmatched.length > 0) lines.push(`No matching student: ${unmatched.join('; ')}`);
+        const lines = [`Filled ${filled} of ${offered} rows by student name.`];
+        if (unfilledNames.size > 0) lines.push(`Not filled: ${[...unfilledNames].join('; ')}`);
         if (ambiguous.length > 0) lines.push(`Ambiguous name, skipped: ${ambiguous.join('; ')}`);
-        if (unmatched.length > 0 && rowNames.size === 0) {
+        if (unmatched.length > 0) lines.push(`Extra clipboard rows, no matching student: ${unmatched.join('; ')}`);
+        if (filled === 0 && offered > 0 && rowNames.size === 0) {
           lines.push('No student names could be read from the grid at all — the page layout may have changed.');
         }
         if (unmatched.length > 0) {
@@ -274,7 +282,9 @@
           console.log('Unmatched clipboard names:\n  ' +
             unmatched.map(reveal).join('\n  '));
         }
-        return { lines, ok: unmatched.length === 0 && ambiguous.length === 0 };
+        // Extra clipboard rows are not an error: it's a success (banner
+        // fades) as long as every row in the column got a grade.
+        return { lines, ok: filled === offered };
       },
     };
   };
@@ -285,7 +295,7 @@
   // the source as it appears, using a Set to avoid revisiting cells.
   const pasteColumn = async (source, col) => {
     const doc = gridDoc();
-    if (!doc) return 0;
+    if (!doc) return { filled: 0, offered: 0 };
 
     const scroller = gridScroller(doc);
     const visited = new Set();  // data-xy values already offered to the source
@@ -326,7 +336,7 @@
       fillVisible();
     }
 
-    return filled;
+    return { filled, offered: visited.size };
   };
 
   // Main flow: read clipboard, wait for user to click a cell, then fill.
@@ -369,9 +379,9 @@
       banner.show(['IC Fill: filling…'], 'info');
 
       const source = clip.mode === 'names' ? nameSource(clip.entries) : positionalSource(clip.values);
-      const filled = await pasteColumn(source, col);
+      const { filled, offered } = await pasteColumn(source, col);
 
-      const { lines, ok } = source.summary(filled);
+      const { lines, ok } = source.summary(filled, offered);
       lines[0] = `IC Fill: ${lines[0]}`;
       banner.show(lines, ok ? 'success' : 'warn', { autoHide: ok });
       console.log(lines.join('\n'));

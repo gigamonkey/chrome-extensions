@@ -35,7 +35,9 @@ clipboard doesn't have to be in the grid's order or cover every student:
 - Students not on the clipboard, and clipboard rows with an empty grade,
   are left untouched.
 - Clipboard rows whose name matches no student (including any header row)
-  are ignored and listed in the summary.
+  are ignored. They're mentioned in the summary, but they aren't an
+  error: as long as every row in the column gets filled, the run counts
+  as a success.
 - Names match regardless of case, extra spaces, or nicknames in
   parentheses, and can be written either `Last, First` or `First Last`.
 - If two students in the grid have the same name, that name is skipped and
@@ -44,7 +46,7 @@ clipboard doesn't have to be in the grid's order or cover every student:
 ## Notes
 
 - Read-only cells are skipped.
-- If something couldn't be filled — extra clipboard rows, unmatched or
-  ambiguous names — the summary banner stays up and lists the problems;
-  after a clean fill it fades out on its own.
+- The summary banner stays up only when some rows in the column didn't
+  get filled, and lists those students; otherwise it fades out on its
+  own after a few seconds.
 - The console (`F12` → Console tab) has the same messages as the banner.
