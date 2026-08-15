@@ -1,6 +1,7 @@
-if (!window.__icFill) {
-  window.__icFill = true;
-
+// A bare block, not an if-guard: consts stay block-scoped so re-injection
+// doesn't collide, and the listener swap at the bottom makes the newest
+// injected version take over without requiring a page reload.
+{
   // Find the grid document by searching through nested iframes for the one
   // containing #gridTable, rather than assuming a fixed nesting depth.
   const gridDoc = () => {
@@ -62,7 +63,10 @@ if (!window.__icFill) {
     };
     const ensure = () => {
       if (el?.isConnected) return;
+      // A banner left behind by a replaced script version isn't ours to reuse.
+      document.getElementById('ic-fill-banner')?.remove();
       el = document.createElement('div');
+      el.id = 'ic-fill-banner';
       // All styling is inline so the host page's CSS can't affect it.
       el.style.cssText =
         'position:fixed;top:16px;right:16px;z-index:2147483647;max-width:380px;' +
@@ -376,5 +380,9 @@ if (!window.__icFill) {
     }
   };
 
+  // Replace any previously injected version's handler (e.g. after the
+  // extension is updated while the tab stays open) so the newest code runs.
+  if (window.__icFillRun) document.removeEventListener('ic-fill', window.__icFillRun);
+  window.__icFillRun = run;
   document.addEventListener('ic-fill', run);
 }
