@@ -1,0 +1,42 @@
+name: ic-fill release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ic-fill/**"
+      - ".github/workflows/ic-fill-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ic-fill
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build zip
+        run: make zip
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(make -s version)
+          TAG="ic-fill-v${VERSION}"
+          # Second copy with an unversioned name so
+          # releases/latest/download/ic-fill.zip is a stable URL.
+          cp "ic-fill-${VERSION}.zip" ic-fill.zip
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "ic-fill-${VERSION}.zip" ic-fill.zip --clobber
+          else
+            gh release create "$TAG" "ic-fill-${VERSION}.zip" ic-fill.zip \
+              --target "$GITHUB_SHA" \
+              --title "ic-fill ${VERSION}" \
+              --notes "IC Fill Chrome extension, version ${VERSION}."
+          fi
