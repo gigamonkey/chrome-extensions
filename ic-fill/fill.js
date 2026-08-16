@@ -17,10 +17,8 @@
     return null;
   };
 
-  // Find all editable input cells in a given column.
-  const inputCells = (col) => {
-    const doc = gridDoc();
-    if (!doc) return [];
+  // Find all editable input cells in a given data-xy column.
+  const inputCells = (doc, col) => {
     const divs = [...doc.querySelector('#gridTable').querySelectorAll('div.scoreCell')];
     return divs
       .filter(e => e.closest('[data-xy]')?.dataset.xy.startsWith(`${col}_`))
@@ -70,6 +68,7 @@
       // All styling is inline so the host page's CSS can't affect it.
       el.style.cssText =
         'position:fixed;top:16px;right:16px;z-index:2147483647;max-width:380px;' +
+        'max-height:60vh;overflow-y:auto;' +
         'background:#fff;color:#202124;font:13px/1.5 system-ui,sans-serif;' +
         'padding:12px 36px 12px 14px;border-radius:8px;border-left:4px solid #1a73e8;' +
         'box-shadow:0 2px 12px rgba(0,0,0,.3);transition:opacity .4s;';
@@ -138,9 +137,13 @@
     return first && last ? norm(`${last} ${first}`) : '';
   };
 
-  // Parse clipboard text. If every non-blank line contains a tab, it's a
-  // name/grade TSV and we match by student name; otherwise it's a plain
-  // column of grades pasted positionally. Trailing blank lines are dropped.
+  // Parse clipboard text into one of three modes:
+  //  - assignments: a header row whose first column is Name/name/Names/names
+  //    and whose other columns name the assignments to fill (by name or
+  //    abbreviation), followed by name + grades rows.
+  //  - names: every non-blank line is a name<TAB>grade pair.
+  //  - positional: a plain column of grades pasted top to bottom.
+  // Trailing blank lines are dropped.
   const parseClipboard = (text) => {
     const lines = text.split('\n').map(l => l.replace(/\r$/, ''));
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
@@ -148,19 +151,53 @@
     }
     if (lines.length === 0) return null;
     const nonBlank = lines.filter(l => l.trim() !== '');
+
+    const first = nonBlank[0]?.split('\t') ?? [];
+    if (first.length >= 2 && ['Name', 'name', 'Names', 'names'].includes(first[0].trim())) {
+      return {
+        mode: 'assignments',
+        headers: first.slice(1).map(h => h.trim()),
+        rows: nonBlank.slice(1).map(l => {
+          const fields = l.split('\t');
+          return { name: fields[0].trim(), grades: fields.slice(1).map(g => g.trim()) };
+        }),
+      };
+    }
+
     if (!nonBlank.every(l => l.includes('\t'))) {
       return { mode: 'positional', values: lines };
     }
-    // Rows with an empty grade are dropped: no grade means leave that
-    // student's cell untouched, not blank it. Unmatchable names (including
-    // any header row) are reported after the fill, not treated as errors.
-    const entries = [];
-    for (const line of nonBlank) {
-      const [name, grade] = line.split('\t');
-      if (name.trim() === '' || !grade?.trim()) continue;
-      entries.push({ name: name.trim(), grade: grade.trim(), used: false, ambiguous: false });
-    }
-    return { mode: 'names', entries };
+    return { mode: 'names', entries: tsvEntries(nonBlank.map(l => l.split('\t'))) };
+  };
+
+  // Build name/grade entries from [name, grade] pairs. Rows with an empty
+  // grade are dropped: no grade means leave that student's cell untouched,
+  // not blank it. Unmatchable names are reported after the fill, not
+  // treated as errors.
+  const tsvEntries = (pairs) =>
+    pairs
+      .filter(([name, grade]) => name.trim() !== '' && grade?.trim())
+      .map(([name, grade]) => ({ name: name.trim(), grade: grade.trim(), used: false, ambiguous: false }));
+
+  // The assignments visible in the grid header: full name (from the sr-only
+  // tooltip text), displayed abbreviation, and the id that prefixes every
+  // score cell of that assignment's column.
+  const assignments = (doc) => {
+    return [...doc.querySelectorAll('td.assignTD[id^="assignTD"]')].map(td => ({
+      id: td.id.slice('assignTD'.length),
+      abbrev: td.querySelector('.assignmentName a')?.textContent.trim() ?? '',
+      name: td.querySelector('span.sr-only b')?.textContent.trim() ?? '',
+    }));
+  };
+
+  // Console dump for name-matching failures: shows exactly what the grid
+  // displays, with any non-ASCII characters made visible.
+  const dumpRosterDiagnostics = (roster, unmatched) => {
+    const reveal = n => JSON.stringify(n).replace(/[^\x20-\x7e]/g,
+      c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+    console.log(`Student names read from the grid (${roster.length}):\n  ` +
+      roster.map(reveal).join('\n  '));
+    console.log('Unmatched clipboard names:\n  ' + unmatched.map(reveal).join('\n  '));
   };
 
   // Value source for positional mode: the current fill-down-the-column
@@ -180,9 +217,9 @@
     };
   };
 
-  // Value source for name mode. Grid rows (tr#gridTR<section>_<student>) and
-  // student-name rows (tr#studentTR<section>_<student>) share an id suffix,
-  // so each editable cell maps to a display name via that suffix. refresh()
+  // Value source for name-matched modes. Grid rows (tr#gridTR<sec>_<stu>)
+  // and student-name rows (tr#studentTR<sec>_<stu>) share an id suffix, so
+  // each editable cell maps to a display name via that suffix. refresh()
   // re-reads #studentTable on every scroll pass in case it, like the grid,
   // renders rows lazily.
   const nameSource = (entries) => {
@@ -206,7 +243,14 @@
       if (name) unfilledNames.add(name.replace(/\s+/g, ' ').trim());
       return undefined;
     };
+    const details = () => ({
+      unmatched: entries.filter(e => !e.used && !e.ambiguous).map(e => e.name),
+      ambiguous: entries.filter(e => e.ambiguous && !e.used).map(e => e.name),
+      unfilled: [...unfilledNames],
+      roster: [...new Set(rowNames.values())],
+    });
     return {
+      details,
       refresh: (doc) => {
         for (const tr of doc.querySelectorAll('#studentTable tr.studentTR')) {
           const name = tr.querySelector('.studentName a')?.textContent;
@@ -263,25 +307,15 @@
       // column got filled, so the whole column has to be examined.
       exhausted: () => false,
       summary: (filled, offered) => {
-        const unmatched = entries.filter(e => !e.used && !e.ambiguous).map(e => e.name);
-        const ambiguous = entries.filter(e => e.ambiguous && !e.used).map(e => e.name);
+        const det = details();
         const lines = [`Filled ${filled} of ${offered} rows by student name.`];
-        if (unfilledNames.size > 0) lines.push(`Not filled: ${[...unfilledNames].join('; ')}`);
-        if (ambiguous.length > 0) lines.push(`Ambiguous name, skipped: ${ambiguous.join('; ')}`);
-        if (unmatched.length > 0) lines.push(`Extra clipboard rows, no matching student: ${unmatched.join('; ')}`);
-        if (filled === 0 && offered > 0 && rowNames.size === 0) {
+        if (det.unfilled.length > 0) lines.push(`Not filled: ${det.unfilled.join('; ')}`);
+        if (det.ambiguous.length > 0) lines.push(`Ambiguous name, skipped: ${det.ambiguous.join('; ')}`);
+        if (det.unmatched.length > 0) lines.push(`Extra clipboard rows, no matching student: ${det.unmatched.join('; ')}`);
+        if (filled === 0 && offered > 0 && det.roster.length === 0) {
           lines.push('No student names could be read from the grid at all — the page layout may have changed.');
         }
-        if (unmatched.length > 0) {
-          // Diagnostic dump: show exactly what the grid displays, with any
-          // non-ASCII characters made visible, so mismatches can be debugged.
-          const reveal = n => JSON.stringify(n).replace(/[^\x20-\x7e]/g,
-            c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
-          console.log(`Student names read from the grid (${rowNames.size}):\n  ` +
-            [...new Set(rowNames.values())].map(reveal).join('\n  '));
-          console.log('Unmatched clipboard names:\n  ' +
-            unmatched.map(reveal).join('\n  '));
-        }
+        if (det.unmatched.length > 0) dumpRosterDiagnostics(det.roster, det.unmatched);
         // Extra clipboard rows are not an error: it's a success (banner
         // fades) as long as every row in the column got a grade.
         return { lines, ok: filled === offered };
@@ -289,31 +323,52 @@
     };
   };
 
-  // Fill a column from a value source, scrolling to reach lazily-rendered
-  // rows. Rows off-screen exist as empty <tr> placeholders (no inputs) until
-  // scrolled into view, so we scroll through the grid and offer each cell to
-  // the source as it appears, using a Set to avoid revisiting cells.
-  const pasteColumn = async (source, col) => {
+  // A fill job: a value source plus how to enumerate its editable cells and
+  // key them for the visited set.
+  const columnJob = (source, col) => ({
+    source,
+    cells: (doc) => inputCells(doc, col),
+    key: (input) => input.closest('[data-xy]')?.dataset.xy,
+  });
+
+  // Selecting by score-cell id prefix (score<assignId>_<sec>_<stu>) rather
+  // than data-xy avoids the grid's duplicated data-xy coordinate spaces.
+  const assignmentJob = (source, assignId, label) => ({
+    source,
+    label,
+    cells: (doc) => [...doc.querySelectorAll(`td[id^="score${assignId}_"] input.scoreInput`)]
+      .filter(e => !e.hasAttribute('readonly')),
+    key: (input) => input.closest('td[id]')?.id,
+  });
+
+  // Fill one or more columns in a single pass, scrolling to reach
+  // lazily-rendered rows. Rows off-screen exist as empty <tr> placeholders
+  // (no inputs) until scrolled into view, so we scroll through the grid and
+  // offer each cell to its job's source as it appears, using per-job Sets to
+  // avoid revisiting cells. Returns per-job {filled, offered}.
+  const pasteColumns = async (jobs) => {
     const doc = gridDoc();
-    if (!doc) return { filled: 0, offered: 0 };
+    if (!doc) return jobs.map(() => ({ filled: 0, offered: 0 }));
 
     const scroller = gridScroller(doc);
-    const visited = new Set();  // data-xy values already offered to the source
-    let filled = 0;
+    const visited = jobs.map(() => new Set());
+    const filled = jobs.map(() => 0);
 
     const fillVisible = () => {
-      source.refresh?.(doc);
-      for (const input of inputCells(col)) {
-        const xy = input.closest('[data-xy]')?.dataset.xy;
-        if (!xy || visited.has(xy)) continue;
-        if (source.exhausted()) break;
-        visited.add(xy);
-        const value = source.resolve(input);
-        if (value !== undefined) {
-          fillCell(input, value);
-          filled++;
+      jobs.forEach((job, i) => {
+        job.source.refresh?.(doc);
+        for (const input of job.cells(doc)) {
+          const key = job.key(input);
+          if (!key || visited[i].has(key)) continue;
+          if (job.source.exhausted()) break;
+          visited[i].add(key);
+          const value = job.source.resolve(input);
+          if (value !== undefined) {
+            fillCell(input, value);
+            filled[i]++;
+          }
         }
-      }
+      });
     };
 
     if (scroller) {
@@ -330,16 +385,118 @@
         scroller.scrollTop += step;
         await new Promise(r => setTimeout(r, 150));
         fillVisible();
-        if (source.exhausted()) break;
+        if (jobs.every(job => job.source.exhausted())) break;
       }
       // One final check at the bottom.
       fillVisible();
     }
 
-    return { filled, offered: visited.size };
+    return jobs.map((_, i) => ({ filled: filled[i], offered: visited[i].size }));
   };
 
-  // Main flow: read clipboard, wait for user to click a cell, then fill.
+  // Aggregate summary for assignments mode. Same success rule as the other
+  // name-matched mode, applied across all columns: every offered cell filled
+  // and every clipboard column matched to an assignment.
+  const assignmentsSummary = (jobs, stats, problems) => {
+    const filled = stats.reduce((sum, s) => sum + s.filled, 0);
+    const offered = stats.reduce((sum, s) => sum + s.offered, 0);
+    const lines = [`Filled ${filled} of ${offered} cells across ${jobs.length} assignment${jobs.length === 1 ? '' : 's'}.`];
+    lines.push(...problems);
+    const ambiguous = new Set();
+    const extra = new Set();
+    jobs.forEach((job, i) => {
+      const det = job.source.details();
+      det.ambiguous.forEach(n => ambiguous.add(n));
+      det.unmatched.forEach(n => extra.add(n));
+      if (stats[i].filled < stats[i].offered) {
+        lines.push(`${job.label} — not filled: ${det.unfilled.join('; ') || 'unknown rows'}`);
+      }
+    });
+    if (ambiguous.size > 0) lines.push(`Ambiguous name, skipped: ${[...ambiguous].join('; ')}`);
+    if (extra.size > 0) lines.push(`Extra clipboard rows, no matching student: ${[...extra].join('; ')}`);
+    if (extra.size > 0 && jobs.length > 0) {
+      dumpRosterDiagnostics(jobs[0].source.details().roster, [...extra]);
+    }
+    return { lines, ok: filled === offered && problems.length === 0 };
+  };
+
+  // Fill every clipboard column whose header exactly matches an assignment's
+  // name or abbreviation. No cell click needed — the headers say where each
+  // column goes.
+  const runAssignments = async (clip, doc) => {
+    const known = assignments(doc);
+    const problems = [];
+    const claimed = new Set();
+    const jobs = [];
+    clip.headers.forEach((header, j) => {
+      if (header === '') return;
+      const matches = known.filter(a => a.name === header || a.abbrev === header);
+      if (matches.length === 0) {
+        problems.push(`No matching assignment: ${header}`);
+        return;
+      }
+      if (matches.length > 1) {
+        problems.push(`Multiple assignments match "${header}" — column skipped.`);
+        return;
+      }
+      if (claimed.has(matches[0].id)) {
+        problems.push(`Duplicate column for assignment "${header}" — column skipped.`);
+        return;
+      }
+      claimed.add(matches[0].id);
+      const entries = tsvEntries(clip.rows.map(r => [r.name, r.grades[j]]));
+      jobs.push(assignmentJob(nameSource(entries), matches[0].id, header));
+    });
+
+    if (jobs.length === 0) {
+      const lines = ['IC Fill: no clipboard columns matched an assignment.', ...problems];
+      lines.push(`Assignments in the grid: ${known.map(a => `${a.name} (${a.abbrev})`).join('; ') || 'none found'}`);
+      banner.show(lines, 'warn');
+      console.warn(lines.join('\n'));
+      return;
+    }
+
+    banner.show([`IC Fill: filling ${jobs.length} assignment column${jobs.length === 1 ? '' : 's'}: ` +
+      jobs.map(j => j.label).join(', ') + '…'], 'info');
+
+    const stats = await pasteColumns(jobs);
+    const { lines, ok } = assignmentsSummary(jobs, stats, problems);
+    lines[0] = `IC Fill: ${lines[0]}`;
+    banner.show(lines, ok ? 'success' : 'warn', { autoHide: ok });
+    console.log(lines.join('\n'));
+  };
+
+  // Fill a single column chosen by clicking a cell in it.
+  const runColumn = async (clip, doc) => {
+    const count = clip.mode === 'names' ? clip.entries.length : clip.values.length;
+    const how = clip.mode === 'names' ? 'matching by student name' : 'pasting down the column';
+    banner.show(
+      [`IC Fill: ${count} grades on clipboard, ${how}.`, 'Click a cell in the target column…'],
+      'info');
+    console.log(`Got ${count} rows from clipboard (${clip.mode} mode). Click a cell in the target column...`);
+
+    const col = await new Promise(resolve => {
+      doc.addEventListener('focusin', function handler(e) {
+        if (e.target.matches('input.scoreInput')) {
+          doc.removeEventListener('focusin', handler);
+          const xy = e.target.closest('[data-xy]')?.dataset.xy;
+          if (xy) resolve(xy.split('_')[0]);
+        }
+      });
+    });
+
+    banner.show(['IC Fill: filling…'], 'info');
+
+    const source = clip.mode === 'names' ? nameSource(clip.entries) : positionalSource(clip.values);
+    const [{ filled, offered }] = await pasteColumns([columnJob(source, col)]);
+
+    const { lines, ok } = source.summary(filled, offered);
+    lines[0] = `IC Fill: ${lines[0]}`;
+    banner.show(lines, ok ? 'success' : 'warn', { autoHide: ok });
+    console.log(lines.join('\n'));
+  };
+
+  // Main flow: read clipboard, dispatch by mode.
   let active = false;
 
   const run = async () => {
@@ -347,9 +504,12 @@
     active = true;
     try {
       const clip = parseClipboard(await navigator.clipboard.readText());
-      if (!clip || (clip.mode === 'names' && clip.entries.length === 0)) {
+      const empty = !clip ||
+        (clip.mode === 'names' && clip.entries.length === 0) ||
+        (clip.mode === 'assignments' && clip.rows.length === 0);
+      if (empty) {
         banner.show(['IC Fill: nothing usable on the clipboard.'], 'warn');
-        console.error('Clipboard is empty or has no name/grade rows');
+        console.error('Clipboard is empty or has no usable rows');
         return;
       }
 
@@ -359,32 +519,11 @@
         return;
       }
 
-      const count = clip.mode === 'names' ? clip.entries.length : clip.values.length;
-      const how = clip.mode === 'names' ? 'matching by student name' : 'pasting down the column';
-      banner.show(
-        [`IC Fill: ${count} grades on clipboard, ${how}.`, 'Click a cell in the target column…'],
-        'info');
-      console.log(`Got ${count} rows from clipboard (${clip.mode} mode). Click a cell in the target column...`);
-
-      const col = await new Promise(resolve => {
-        doc.addEventListener('focusin', function handler(e) {
-          if (e.target.matches('input.scoreInput')) {
-            doc.removeEventListener('focusin', handler);
-            const xy = e.target.closest('[data-xy]')?.dataset.xy;
-            if (xy) resolve(xy.split('_')[0]);
-          }
-        });
-      });
-
-      banner.show(['IC Fill: filling…'], 'info');
-
-      const source = clip.mode === 'names' ? nameSource(clip.entries) : positionalSource(clip.values);
-      const { filled, offered } = await pasteColumn(source, col);
-
-      const { lines, ok } = source.summary(filled, offered);
-      lines[0] = `IC Fill: ${lines[0]}`;
-      banner.show(lines, ok ? 'success' : 'warn', { autoHide: ok });
-      console.log(lines.join('\n'));
+      if (clip.mode === 'assignments') {
+        await runAssignments(clip, doc);
+      } else {
+        await runColumn(clip, doc);
+      }
     } finally {
       active = false;
     }

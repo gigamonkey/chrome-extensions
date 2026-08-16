@@ -13,10 +13,11 @@ Infinite Campus's grade grid.
 ## Usage
 
 1. Copy grades to your clipboard — e.g. from a spreadsheet — in one of the
-   two formats below.
+   three formats below.
 2. Navigate to the Infinite Campus score grid.
 3. Click the extension icon in the toolbar.
-4. Click any cell in the column you want to fill.
+4. Click any cell in the column you want to fill. (Not needed for the
+   header-row format, which knows its columns.)
 
 A status banner in the top-right corner of the page shows what the
 extension is doing and, when it finishes, a summary of what was filled.
@@ -42,6 +43,14 @@ clipboard doesn't have to be in the grid's order or cover every student:
   parentheses, and can be written either `Last, First` or `First Last`.
 - If two students in the grid have the same name, that name is skipped and
   flagged in the summary rather than guessing.
+
+**Header row** (first cell `Name`/`Names`, remaining cells assignment
+names): fills several assignment columns at once, with no cell click
+needed. Each header must exactly match an assignment's name or its
+abbreviation as shown in the grid; each column below it is a grade per
+student, matched by name with the same rules as the two-column format.
+Empty cells are left untouched, and headers that match no assignment (or
+more than one) are reported and that column is skipped.
 
 ## Notes
 
