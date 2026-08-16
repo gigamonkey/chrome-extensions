@@ -1,7 +1,7 @@
 {
   "name": "IC Fill",
   "manifest_version": 3,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Paste grades from clipboard into an Infinite Campus gradebook column.",
   "icons": {
     "48": "icon.png"
